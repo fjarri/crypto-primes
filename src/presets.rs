@@ -52,16 +52,107 @@ pub fn prime_with_rng<const L: usize>(rng: &mut impl CryptoRngCore, bit_length: 
     if bit_length < 2 {
         panic!("`bit_length` must be 2 or greater.");
     }
+    let mut i = 0;
     loop {
         let start: Uint<L> = random_odd_uint(rng, bit_length);
         let sieve = Sieve::new(&start, bit_length, false);
         for num in sieve {
+            i += 1;
             if is_prime_with_rng(rng, &num) {
+                //std::println!("{i}");
                 return num;
             }
         }
     }
 }
+
+pub fn unbiased_prime_with_rng<const L: usize>(rng: &mut impl CryptoRngCore, bit_length: usize) -> Uint<L> {
+    if bit_length < 2 {
+        panic!("`bit_length` must be 2 or greater.");
+    }
+    loop {
+        let start: Uint<L> = random_odd_uint(rng, bit_length);
+        if is_prime_with_rng(rng, &start) {
+            return start;
+        }
+    }
+}
+
+use crypto_bigint::{NonZero, RandomMod, U1024};
+use crypto_bigint::modular::runtime_mod::{DynResidue, DynResidueParams};
+extern crate std;
+
+pub fn unbiased_prime_with_rng_v2(rng: &mut impl CryptoRngCore) -> U1024 {
+    // First 119 primes
+    let m = U1024::from_be_hex(concat![
+        "000000000000000000000000000001189c19eb3a9b2b5843bc37b89935a7674c",
+        "049f9cc1a53369a9816fedfcd77c3f08e2bd5c6c2ca347f79d7084b130fe218a",
+        "5db3ea4e6f59dea66d0c4f10a505f6d89012fda6074523288946aa0d99e8d3c2",
+        "60e55cc290d2296309e683227097d630616907cda00e98e282ca4947b2df5fd5",
+    ]);
+
+    let lambda_m = U1024::from_be_hex(concat![
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "3296ab65ee7fc8301de8b6043a557f0e74e6896bd07763ec5f1fed0b8d17db00",
+    ]);
+
+    //let range: u128 = 0xe98c6c9a1095bdbedcabf2e91ff580;
+    let range = U1024::from_be_hex(concat![
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "0000000000000000000000000000000000e98c6c9a1095bdbedcabf2e91ff580",
+    ]);
+
+    let b = U1024::random_mod(rng, &NonZero::new(m.wrapping_sub(&U1024::ONE)).unwrap()).wrapping_add(&U1024::ONE);
+    let params = DynResidueParams::new(&m);
+    let mut b_m = DynResidue::new(&b, params);
+
+    let zero = DynResidue::zero(params);
+    let one = DynResidue::one(params);
+
+    let mut i = 0;
+    let mut j = 0;
+
+    loop {
+        i += 1;
+        //std::println!("Finding")
+        let u = one - b_m.pow_bounded_exp(&lambda_m, 256);
+        if u == zero {
+            break;
+        }
+
+        let r = U1024::random_mod(rng, &NonZero::new(m.wrapping_sub(&U1024::ONE)).unwrap()).wrapping_add(&U1024::ONE);
+        let r_m = DynResidue::new(&r, params);
+        b_m = b_m + r_m * u;
+    };
+
+    let b = b_m.retrieve();
+    let b_is_odd: bool = b.is_odd().into();
+    let mask = U1024::MAX << 1;
+
+    loop {
+        j+=1;
+        let a = U1024::random_mod(rng, &NonZero::new(range).unwrap());
+
+        let a = if b_is_odd {
+            a & mask
+        }
+        else {
+            a | U1024::ONE
+        };
+
+        let p = a.wrapping_mul(&m).wrapping_add(&b);
+        if is_prime_with_rng(rng, &p) {
+            std::println!("{j}");
+            return p;
+        }
+    }
+
+}
+
 
 /// Returns a random safe prime (that is, such that `(n - 1) / 2` is also prime)
 /// of size `bit_length` using the provided RNG.

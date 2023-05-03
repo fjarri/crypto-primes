@@ -206,6 +206,11 @@ fn bench_presets(c: &mut Criterion) {
     });
 
     let mut rng = make_rng();
+    group.bench_function("(U1024) Unbiased random prime", |b| {
+        b.iter(|| crypto_primes::unbiased_prime_with_rng_v2(&mut rng))
+    });
+
+    let mut rng = make_rng();
     group.bench_function("(U128) Random prime", |b| {
         b.iter(|| prime_with_rng::<{ nlimbs!(128) }>(&mut rng, 128))
     });
